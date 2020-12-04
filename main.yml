@@ -1,0 +1,424 @@
+---
+# -- Copyright: Copyright (c) 2020, Oracle and/or its affiliates.
+# ---- Author : Andrew Hopkinson (Oracle Cloud Solutions A-Team)
+- name: Create / Update / Destroy Nat Instance Infrastructure
+  hosts: localhost
+  connection: local
+  vars_files:
+    - variables.yml
+  tasks:
+
+# ------ Retrieve Regional / Cloud Data
+# -------- Get a list of Availability Domains
+    - name: Get details of all the availability domains in your tenancy for a specified non-default region
+      oci_ad_facts:
+        compartment_id: "{{ compartment_ocid }}"
+        region: "{{ region }}"
+      register: AvailabilityDomains
+
+# -------- Get Home Region Name
+    - name: Get Region Subscription
+      oci_region_subscription_facts:
+        id: "{{ tenancy_ocid }}"
+      register: RegionSubscriptions
+
+    - set_fact:
+        HomeRegion: "{{ (RegionSubscriptions.region_subscriptions | selectattr('is_home_region') | list)[0] }}"
+        HomeRegionName: "{{ (RegionSubscriptions.region_subscriptions | selectattr('is_home_region') | map(attribute='region_name') | list)[0] }}"
+
+#    - debug: msg="{{ HomeRegion }}"
+    - debug: msg="Home Region {{ HomeRegionName }}"
+    - debug: msg="Working Region {{ region }}"
+
+    - name: Get details of all the available services
+      oci_service_facts:
+        region: "{{ region }}"
+      register: RegionServices
+
+
+# ------ Create Compartment - Root True
+# ------ Root Compartment
+    - set_fact:
+        Yeetum(Tenancy)_id: "{{ compartment_ocid }}"
+        Yeetum(Tenancy)_ocid: "{{ compartment_ocid }}"
+
+
+
+# ------ Create Compartment - Root False
+# ------ Create Compartment
+    - name: Get Compartment ai-quant-env
+      oci_compartment_facts:
+        region: "{{ HomeRegion.region_name }}"
+        compartment_id: "{{ Yeetum(Tenancy)_id }}"
+        name: "ai-quant-env"
+        fetch_subcompartments: True
+      register: Ai_Quant_EnvList
+
+    - name: Create Compartment ai-quant-env
+      oci_compartment:
+        region: "{{ HomeRegion.region_name }}"
+        state: "present"
+        # Required
+        parent_compartment_id: "{{ Yeetum(Tenancy)_id }}"
+        name: "ai-quant-env"
+        description: "MTA Environment"
+        # Optional
+        wait_until: "ACTIVE"
+      register: Ai_Quant_Env
+      when:
+        - Ai_Quant_EnvList.compartments | length == 0
+
+    - name: Get Compartment ai-quant-env
+      oci_compartment_facts:
+        region: "{{ HomeRegion.region_name }}"
+        compartment_id: "{{ Yeetum(Tenancy)_id }}"
+        name: "ai-quant-env"
+        fetch_subcompartments: True
+      register: Ai_Quant_EnvList
+
+    - set_fact:
+        Ai_Quant_Env_id: "{{ (Ai_Quant_EnvList.compartments | map(attribute='id') | list | first) }}"
+        Ai_Quant_Env_ocid: "{{ (Ai_Quant_EnvList.compartments | map(attribute='id') | list | first) }}"
+
+    - pause:
+        seconds: 10
+
+
+
+# ------ Create Compartment - Root False
+# ------ Create Compartment
+    - name: Get Compartment ManagedCompartmentForPaaS
+      oci_compartment_facts:
+        region: "{{ HomeRegion.region_name }}"
+        compartment_id: "{{ Yeetum(Tenancy)_id }}"
+        name: "ManagedCompartmentForPaaS"
+        fetch_subcompartments: True
+      register: ManagedcompartmentforpaasList
+
+    - name: Create Compartment ManagedCompartmentForPaaS
+      oci_compartment:
+        region: "{{ HomeRegion.region_name }}"
+        state: "present"
+        # Required
+        parent_compartment_id: "{{ Yeetum(Tenancy)_id }}"
+        name: "ManagedCompartmentForPaaS"
+        description: "PaaS / Oracle-managed compartment"
+        # Optional
+        wait_until: "ACTIVE"
+      register: Managedcompartmentforpaas
+      when:
+        - ManagedcompartmentforpaasList.compartments | length == 0
+
+    - name: Get Compartment ManagedCompartmentForPaaS
+      oci_compartment_facts:
+        region: "{{ HomeRegion.region_name }}"
+        compartment_id: "{{ Yeetum(Tenancy)_id }}"
+        name: "ManagedCompartmentForPaaS"
+        fetch_subcompartments: True
+      register: ManagedcompartmentforpaasList
+
+    - set_fact:
+        Managedcompartmentforpaas_id: "{{ (ManagedcompartmentforpaasList.compartments | map(attribute='id') | list | first) }}"
+        Managedcompartmentforpaas_ocid: "{{ (ManagedcompartmentforpaasList.compartments | map(attribute='id') | list | first) }}"
+
+    - pause:
+        seconds: 10
+
+
+
+# ------ Create Virtual Cloud Network
+    - name: Create Virtual Cloud Network vcn-20200604-1839
+      oci_vcn:
+        region: "{{ region }}"
+        state: "present"
+        # Required
+        compartment_id: "{{ Yeetum(Tenancy)_id }}"
+        cidr_block: "10.0.0.0/16"
+        # Optional
+        dns_label: "vcn-20200604-1839"
+        display_name: "vcn-20200604-1839"
+      register: Vcn_20200604_1839
+
+    - set_fact:
+        Vcn_20200604_1839_id: "{{ Vcn_20200604_1839.vcn.id }}"
+        Vcn_20200604_1839_ocid: "{{ Vcn_20200604_1839.vcn.id }}"
+        Vcn_20200604_1839_domain_name: "{{ Vcn_20200604_1839.vcn.vcn_domain_name }}"
+        Vcn_20200604_1839_dhcp_options_id: "{{ Vcn_20200604_1839.vcn.default_dhcp_options_id }}"
+
+# ------ Create Internet Gateway
+    - name: Create Internet Gateway okit-ig001
+      oci_internet_gateway:
+        region: "{{ region }}"
+        state: "present"
+        # Required
+        compartment_id: "{{ Yeetum(Tenancy)_id }}"
+        vcn_id: "{{ Vcn_20200604_1839_id }}"
+        # Optional
+        is_enabled: "True"
+        display_name: "okit-ig001"
+      register: Okit_Ig001
+
+    - set_fact:
+        Okit_Ig001_id: "{{ Okit_Ig001.internet_gateway.id }}"
+        Okit_Ig001_ocid: "{{ Okit_Ig001.internet_gateway.id }}"
+
+# ------ Create NAT Gateway
+    - name: Create NAT Gateway okit-ng001
+      oci_nat_gateway:
+        region: "{{ region }}"
+        state: "present"
+        # Required
+        compartment_id: "{{ Yeetum(Tenancy)_id }}"
+        vcn_id: "{{ Vcn_20200604_1839_id }}"
+        # Optional
+        display_name: "okit-ng001"
+        block_traffic: "False"
+      register: Okit_Ng001
+
+    - set_fact:
+        Okit_Ng001_id: "{{ Okit_Ng001.nat_gateway.id }}"
+        Okit_Ng001_ocid: "{{ Okit_Ng001.nat_gateway.id }}"
+
+# ------ Create Security List
+    - name: Create Security List Default Security List
+      oci_security_list:
+        region: "{{ region }}"
+        state: "present"
+        # Required
+        security_list_id: "{{ Vcn_20200604_1839_default_security_list_id }}"
+        egress_security_rules:
+        ingress_security_rules:
+              # Required
+            - protocol: "6"
+              source: "0.0.0.0/0"
+              # Optional
+              source_type: "CIDR_BLOCK"
+              tcp_options:
+                destination_port_range:
+                    min: "22"
+                    max: "22"
+                source_port_range:
+                    min: "All"
+                    max: "All"
+        # Optional
+        display_name: "Default Security List"
+      register: DefaultSecurityList
+
+    - set_fact:
+        DefaultSecurityList_ocid: "{{ DefaultSecurityList.security_list.id }}"
+        DefaultSecurityList_id: "{{ DefaultSecurityList.security_list.id }}"
+
+# ------ Create Route Table
+    - name: Create Route Table natGW-route
+      oci_route_table:
+        region: "{{ region }}"
+        state: "present"
+        # Required
+        rt_id: "{{ Vcn_20200604_1839_default_route_table_id }}"
+        route_rules:
+            - destination_type: "CIDR_BLOCK"
+              destination: "0.0.0.0/0"
+              network_entity_id: "{{ Okit_Ng001_id }}"
+              description: ""
+        # Optional
+        display_name: "natGW-route"
+      register: Natgw_Route
+
+    - set_fact:
+        Natgw_Route_ocid: "{{ Natgw_Route.route_table.id }}"
+        Natgw_Route_id: "{{ Natgw_Route.route_table.id }}"
+
+# ------ Create Route Table
+    - name: Create Route Table Default Route Table
+      oci_route_table:
+        region: "{{ region }}"
+        state: "present"
+        # Required
+        compartment_id: "{{ Yeetum(Tenancy)_id }}"
+        vcn_id: "{{ Vcn_20200604_1839_id }}"
+        route_rules:
+            - destination_type: "CIDR_BLOCK"
+              destination: "0.0.0.0/0"
+              network_entity_id: "{{ Okit_Ig001_id }}"
+              description: ""
+        # Optional
+        display_name: "Default Route Table"
+      register: DefaultRouteTable
+
+    - set_fact:
+        DefaultRouteTable_ocid: "{{ DefaultRouteTable.route_table.id }}"
+        DefaultRouteTable_id: "{{ DefaultRouteTable.route_table.id }}"
+
+# ------ Create Subnet
+    - name: Create Regional Subnet Public Subnet
+      oci_subnet:
+        region: "{{ region }}"
+        state: "present"
+        # Required
+        compartment_id: "{{ Yeetum(Tenancy)_id }}"
+        vcn_id: "{{ Vcn_20200604_1839_id }}"
+        cidr_block: "10.0.0.0/24"
+        # Optional
+        display_name: "Public Subnet"
+        dns_label: ""
+        prohibit_public_ip_on_vnic: "False"
+      register: PublicSubnet
+
+    - set_fact:
+        PublicSubnet_id: "{{ PublicSubnet.subnet.id }}"
+        PublicSubnet_domain_name: "{{ PublicSubnet.subnet.subnet_domain_name }}"
+        PublicSubnet_dhcp_options_id: "{{ PublicSubnet.subnet.dhcp_options_id }}"
+
+# ------ Create Subnet
+    - name: Create Regional Subnet private-subnet-001010
+      oci_subnet:
+        region: "{{ region }}"
+        state: "present"
+        # Required
+        compartment_id: "{{ Yeetum(Tenancy)_id }}"
+        vcn_id: "{{ Vcn_20200604_1839_id }}"
+        cidr_block: "10.0.1.0/24"
+        # Optional
+        display_name: "private-subnet-001010"
+        dns_label: ""
+        prohibit_public_ip_on_vnic: "False"
+      register: Private_Subnet_001010
+
+    - set_fact:
+        Private_Subnet_001010_id: "{{ Private_Subnet_001010.subnet.id }}"
+        Private_Subnet_001010_domain_name: "{{ Private_Subnet_001010.subnet.subnet_domain_name }}"
+        Private_Subnet_001010_dhcp_options_id: "{{ Private_Subnet_001010.subnet.dhcp_options_id }}"
+
+# ------ Get List OL7 Images
+    - name: List images
+      oci_image_facts:
+        region: "{{ region }}"
+        compartment_id: "{{ compartment_ocid }}"
+        operating_system: "Oracle Linux"
+        operating_system_version: "7.8"
+        shape: "VM.Standard.E2.1"
+      register: Yeetum_Mta_Beta_V2Images
+
+# ------ Create Instance yeetum-mta-beta-v2
+    - name: Create Instance yeetum-mta-beta-v2
+      oci_instance:
+        region: "{{ region }}"
+        state: "present"
+        # Required
+        availability_domain: "{{ (AvailabilityDomains.availability_domains | sort(attribute='name') | map(attribute='name') | list)[1 | default(1) | int - 1] }}"
+        compartment_id: "{{ Yeetum(Tenancy)_id }}"
+        shape: "VM.Standard.E2.1"
+        # Optional
+        display_name: "yeetum-mta-beta-v2"
+        metadata:
+            ssh_authorized_keys: ""
+        source_details:
+            # Required
+            source_type: "image"
+            image_id: "{{ (Yeetum_Mta_Beta_V2Images.images | map(attribute='id') | first) }}"
+            # Optional
+            boot_volume_size_in_gbs: "50"
+        create_vnic_details:
+            # Required
+            subnet_id: "{{ PublicSubnet_id }}"
+            # Optional
+            assign_public_ip: "True"
+            name: "yeetum-mta-beta-v2 vnic 00"
+            hostname_label: "okit-in0010"
+            skip_source_dest_check: "False"
+      register: Yeetum_Mta_Beta_V2
+
+    - set_fact:
+        Yeetum_Mta_Beta_V2_id: "{{ Yeetum_Mta_Beta_V2.instance.id }}"
+        Yeetum_Mta_Beta_V2_ocid: "{{ Yeetum_Mta_Beta_V2.instance.id }}"
+
+# ------ Get Vnic Attachments for Instance yeetum-mta-beta-v2
+    - name: Get VNIC Attachments for yeetum-mta-beta-v2
+      oci_vnic_attachment_facts:
+        region: "{{ region }}"
+        compartment_id: "{{ Yeetum(Tenancy)_id }}"
+        instance_id: "{{ Yeetum_Mta_Beta_V2_ocid }}"
+      register: Yeetum_Mta_Beta_V2VnicAttachments
+
+# ------ Get Primary Vnic for Instance yeetum-mta-beta-v2
+    - name: Get Primary VNIC for yeetum-mta-beta-v2
+      oci_vnic_facts:
+        region: "{{ region }}"
+        id: "{{ (Yeetum_Mta_Beta_V2VnicAttachments.vnic_attachments | map(attribute='vnic_id') | first) }}"
+      register: Yeetum_Mta_Beta_V2PrimaryVnic
+
+    - set_fact:
+        Yeetum_Mta_Beta_V2_public_ip: "{{ Yeetum_Mta_Beta_V2PrimaryVnic.vnic.public_ip }}"
+        Yeetum_Mta_Beta_V2_private_ip: "{{ Yeetum_Mta_Beta_V2PrimaryVnic.vnic.private_ip }}"
+
+# ------ Create Block Storage Attachments for Instance yeetum-mta-beta-v2
+
+# ------ Create Vnic Attachments for Instance yeetum-mta-beta-v2
+
+
+# ------ Get List OL7 Images
+    - name: List images
+      oci_image_facts:
+        region: "{{ region }}"
+        compartment_id: "{{ compartment_ocid }}"
+        operating_system: "Canonical Ubuntu"
+        operating_system_version: "20.04 Minimal"
+        shape: "VM.Standard.E2.1"
+      register: Instance_20201110_1635Images
+
+# ------ Create Instance instance-20201110-1635
+    - name: Create Instance instance-20201110-1635
+      oci_instance:
+        region: "{{ region }}"
+        state: "present"
+        # Required
+        availability_domain: "{{ (AvailabilityDomains.availability_domains | sort(attribute='name') | map(attribute='name') | list)[1 | default(1) | int - 1] }}"
+        compartment_id: "{{ Yeetum(Tenancy)_id }}"
+        shape: "VM.Standard.E2.1"
+        # Optional
+        display_name: "instance-20201110-1635"
+        metadata:
+            ssh_authorized_keys: ""
+        source_details:
+            # Required
+            source_type: "image"
+            image_id: "{{ (Instance_20201110_1635Images.images | map(attribute='id') | first) }}"
+            # Optional
+            boot_volume_size_in_gbs: "50"
+        create_vnic_details:
+            # Required
+            subnet_id: "{{ Private_Subnet_001010_id }}"
+            # Optional
+            assign_public_ip: "False"
+            name: "instance-20201110-1635 vnic 00"
+            hostname_label: "okit-in0020"
+            skip_source_dest_check: "False"
+      register: Instance_20201110_1635
+
+    - set_fact:
+        Instance_20201110_1635_id: "{{ Instance_20201110_1635.instance.id }}"
+        Instance_20201110_1635_ocid: "{{ Instance_20201110_1635.instance.id }}"
+
+# ------ Get Vnic Attachments for Instance instance-20201110-1635
+    - name: Get VNIC Attachments for instance-20201110-1635
+      oci_vnic_attachment_facts:
+        region: "{{ region }}"
+        compartment_id: "{{ Yeetum(Tenancy)_id }}"
+        instance_id: "{{ Instance_20201110_1635_ocid }}"
+      register: Instance_20201110_1635VnicAttachments
+
+# ------ Get Primary Vnic for Instance instance-20201110-1635
+    - name: Get Primary VNIC for instance-20201110-1635
+      oci_vnic_facts:
+        region: "{{ region }}"
+        id: "{{ (Instance_20201110_1635VnicAttachments.vnic_attachments | map(attribute='vnic_id') | first) }}"
+      register: Instance_20201110_1635PrimaryVnic
+
+    - set_fact:
+        Instance_20201110_1635_public_ip: "{{ Instance_20201110_1635PrimaryVnic.vnic.public_ip }}"
+        Instance_20201110_1635_private_ip: "{{ Instance_20201110_1635PrimaryVnic.vnic.private_ip }}"
+
+# ------ Create Block Storage Attachments for Instance instance-20201110-1635
+
+# ------ Create Vnic Attachments for Instance instance-20201110-1635
+
